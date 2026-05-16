@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>实时印刷检测</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;700;900&display=swap');
+
+  :root {
+    --bg: #080c10;
+    --surface: #0f1520;
+    --card: #141c28;
+    --border: #1e2d42;
+    --ok: #00e676;
+    --fail: #ff1744;
+    --warn: #ffd600;
+    --blue: #29b6f6;
+    --text: #e8f0fe;
+    --muted: #607d9a;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+
+  body {
+    font-family: 'Noto Sans SC', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100dvh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ══ PHASE: SETUP ══ */
+  #phase-setup {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    padding: 28px 24px;
+    gap: 24px;
+  }
+
+  .setup-logo {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+
+  .setup-title {
+    font-size: 28px;
+    font-weight: 900;
+    text-align: center;
+    line-height: 1.2;
+    color: var(--text);
+  }
+
+  .setup-title span {
+    color: var(--blue);
+  }
+
+  .setup-desc {
+    font-size: 13px;
+    color: var(--muted);
+    text-align: center;
+    line-height: 1.7;
+  }
+
+  .upload-box {
+    width: 100%;
+    max-width: 340px;
+    border: 2px dashed var(--border);
+    border-radius: 20px;
+    padding: 32px 20px;
+    text-align: center;
+    cursor: pointer;
+    position: relative;
+    transition: all .2s;
+    background: var(--card);
+  }
+
+  .upload-box:active { border-color: var(--blue); background: rgba(41,182,246,.05); }
+
+  .upload-box.has-img {
+    border-style: solid;
+    border-color: var(--ok);
+    padding: 0;
+    overflow: hidden;
+  }
+
+  .upload-box img {
+    width: 100%; height: 180px;
+    object-fit: cover;
+    border-radius: 18px;
+    display: block;
+  }
+
+  .upload-box input {
+    position: absolute; inset: 0;
+    opacity: 0; width: 100%; height: 100%;
+    cursor: pointer;
+  }
+
+  .upload-icon { font-size: 36px; margin-bottom: 10px; }
+  .upload-label { font-size: 15px; font-weight: 700; }
+  .upload-hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+  .badge-ok {
+    position: absolute; bottom: 10px; right: 10px;
+    background: var(--ok); color: #000;
+    font-size: 10px; font-weight: 900;
+    padding: 3px 10px; border-radius: 20px;
+    letter-spacing: 1px;
+  }
+
+  .btn-start {
+    width: 100%; max-width: 340px;
+    padding: 18px;
+    background: var(--blue);
+    border: none; border-radius: 16px;
+    color: #000; font-family: inherit;
+    font-size: 17px; font-weight: 900;
+    cursor: pointer;
+    transition: all .15s;
+    box-shadow: 0 6px 24px rgba(41,182,246,.3);
+  }
+
+  .btn-start:disabled {
+    opacity: .3; cursor: not-allowed;
+    box-shadow: none;
+  }
+
+  .btn-start:not(:disabled):active {
+    transform: scale(.97);
+  }
+
+  /* ══ PHASE: SCAN ══ */
+  #phase-scan {
+    display: none;
+    flex-direction: column;
+    height: 100%;
+    position: relative;
+  }
+
+  /* Camera feed - full screen */
+  #video {
+    width: 100%;
+    flex: 1;
+    object-fit: cover;
+    display: block;
+    background: #000;
+  }
+
+  /* Top bar */
+  .scan-topbar {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: linear-gradient(to bottom, rgba(8,12,16,.9), transparent);
+    z-index: 20;
+  }
+
+  .scan-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .live-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--ok);
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%,100% { opacity:1; transform:scale(1); }
+    50% { opacity:.4; transform:scale(.8); }
+  }
+
+  .btn-exit {
+    background: rgba(255,255,255,.1);
+    border: none; border-radius: 8px;
+    color: var(--text); font-family: inherit;
+    font-size: 12px; font-weight: 700;
+    padding: 7px 14px; cursor: pointer;
+  }
+
+  /* Scan frame guide */
+  .scan-frame {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 72vw; height: 72vw;
+    max-width: 300px; max-height: 300px;
+    z-index: 15;
+    pointer-events: none;
+  }
+
+  .frame-corner {
+    position: absolute;
+    width: 28px; height: 28px;
+    border-color: rgba(255,255,255,.7);
+    border-style: solid;
+  }
+
+  .fc-tl { top:0; left:0; border-width: 3px 0 0 3px; border-radius: 6px 0 0 0; }
+  .fc-tr { top:0; right:0; border-width: 3px 3px 0 0; border-radius: 0 6px 0 0; }
+  .fc-bl { bottom:0; left:0; border-width: 0 0 3px 3px; border-radius: 0 0 0 6px; }
+  .fc-br { bottom:0; right:0; border-width: 0 3px 3px 0; border-radius: 0 0 6px 0; }
+
+  .scan-line {
+    position: absolute;
+    left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(41,182,246,.8), transparent);
+    animation: scanline 2s linear infinite;
+    top: 0;
+  }
+
+  @keyframes scanline {
+    0% { top: 0; opacity:1; }
+    100% { top: 100%; opacity:.3; }
+  }
+
+  /* Result overlay - bottom */
+  .result-overlay {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    padding: 20px 20px 36px;
+    background: linear-gradient(to top, rgba(8,12,16,.97) 70%, transparent);
+    z-index: 20;
+    text-align: center;
+    transition: all .2s;
+  }
+
+  .result-verdict {
+    font-size: 52px;
+    font-weight: 900;
+    letter-spacing: 2px;
+    line-height: 1;
+    margin-bottom: 6px;
+    transition: color .2s;
+  }
+
+  .result-verdict.ok { color: var(--ok); }
+  .result-verdict.fail { color: var(--fail); }
+  .result-verdict.ready { color: var(--muted); font-size: 22px; font-weight: 400; }
+
+  .result-sub {
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 20px;
+  }
+
+  /* Stats row */
+  .stats-row {
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+
+  .stat {
+    background: rgba(255,255,255,.06);
+    border-radius: 12px;
+    padding: 10px 18px;
+    min-width: 80px;
+  }
+
+  .stat-val {
+    font-size: 20px;
+    font-weight: 900;
+    color: var(--text);
+  }
+
+  .stat-val.green { color: var(--ok); }
+  .stat-val.red { color: var(--fail); }
+
+  .stat-label {
+    font-size: 10px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+
+  /* Manual capture button */
+  .btn-capture {
+    width: 72px; height: 72px;
+    border-radius: 50%;
+    background: #fff;
+    border: 5px solid rgba(255,255,255,.3);
+    cursor: pointer;
+    margin: 0 auto;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 28px;
+    transition: transform .1s;
+    box-shadow: 0 0 0 0 rgba(255,255,255,.4);
+    animation: ring 2s ease-out infinite;
+  }
+
+  @keyframes ring {
+    0% { box-shadow: 0 0 0 0 rgba(255,255,255,.3); }
+    70% { box-shadow: 0 0 0 16px rgba(255,255,255,0); }
+    100% { box-shadow: 0 0 0 0 rgba(255,255,255,0); }
+  }
+
+  .btn-capture:active { transform: scale(.93); }
+
+  .capture-hint {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 10px;
+  }
+
+  /* Flash effect */
+  #flash {
+    position: fixed; inset: 0;
+    background: #fff;
+    opacity: 0;
+    pointer-events: none;
+    z-index: 999;
+    transition: opacity .05s;
+  }
+
+  /* Sensitivity selector */
+  .sens-row {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    margin-bottom: 16px;
+  }
+
+  .sens-btn {
+    padding: 6px 14px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted);
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all .15s;
+  }
+
+  .sens-btn.active {
+    background: var(--blue);
+    border-color: var(--blue);
+    color: #000;
+  }
+
+  /* Hidden canvas */
+  #capture-canvas { display: none; }
+  #std-canvas { display: none; }
+</style>
+</head>
+<body>
+
+<!-- ══ SETUP PHASE ══ -->
+<div id="phase-setup">
+  <div class="setup-logo">🔬 印刷质检系统</div>
+  <div class="setup-title">实时扫描<br><span>自动检测</span></div>
+  <div class="setup-desc">
+    第一步选好标准合格图<br>
+    然后对准产品按拍摄 → 自动判断合格/不合格
+  </div>
+
+  <div class="upload-box" id="upload-box">
+    <input type="file" accept="image/*" id="std-input">
+    <div class="upload-icon">📦</div>
+    <div class="upload-label">选择标准合格样板图</div>
+    <div class="upload-hint">点这里从相册选一张合格品照片</div>
+  </div>
+
+  <button class="btn-start" id="btn-start" disabled>
+    📷 &nbsp;开始扫描检测
+  </button>
+</div>
+
+<!-- ══ SCAN PHASE ══ -->
+<div id="phase-scan">
+
+  <!-- Top bar -->
+  <div class="scan-topbar">
+    <div class="scan-title">
+      <div class="live-dot"></div>
+      实时检测中
+    </div>
+    <button class="btn-exit" id="btn-exit">✕ 退出</button>
+  </div>
+
+  <!-- Camera -->
+  <video id="video" autoplay playsinline muted></video>
+
+  <!-- Scan frame guide -->
+  <div class="scan-frame">
+    <div class="frame-corner fc-tl"></div>
+    <div class="frame-corner fc-tr"></div>
+    <div class="frame-corner fc-bl"></div>
+    <div class="frame-corner fc-br"></div>
+    <div class="scan-line"></div>
+  </div>
+
+  <!-- Bottom result area -->
+  <div class="result-overlay">
+
+    <!-- Sensitivity -->
+    <div class="sens-row">
+      <button class="sens-btn" data-v="15">宽松</button>
+      <button class="sens-btn active" data-v="28">中等</button>
+      <button class="sens-btn" data-v="45">严格</button>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats-row">
+      <div class="stat">
+        <div class="stat-val green" id="count-ok">0</div>
+        <div class="stat-label">✅ 合格</div>
+      </div>
+      <div class="stat">
+        <div class="stat-val red" id="count-fail">0</div>
+        <div class="stat-label">❌ 不合格</div>
+      </div>
+      <div class="stat">
+        <div class="stat-val" id="count-total">0</div>
+        <div class="stat-label">📦 总计</div>
+      </div>
+    </div>
+
+    <!-- Verdict -->
+    <div class="result-verdict ready" id="verdict">对准产品按下拍摄</div>
+    <div class="result-sub" id="verdict-sub">将印刷面对准上方框内</div>
+
+    <!-- Capture button -->
+    <button class="btn-capture" id="btn-capture">📸</button>
+    <div class="capture-hint">按一下 = 检测一个产品</div>
+
+  </div>
+</div>
+
+<!-- Flash + hidden canvases -->
+<div id="flash"></div>
+<canvas id="capture-canvas"></canvas>
+<canvas id="std-canvas"></canvas>
+
+<script>
+// ── State ──
+let stdImageData = null;
+let sensitivity = 28;
+let countOk = 0, countFail = 0;
+let stream = null;
+
+const video       = document.getElementById('video');
+const phaseSetup  = document.getElementById('phase-setup');
+const phaseScan   = document.getElementById('phase-scan');
+const stdInput    = document.getElementById('std-input');
+const uploadBox   = document.getElementById('upload-box');
+const btnStart    = document.getElementById('btn-start');
+const btnExit     = document.getElementById('btn-exit');
+const btnCapture  = document.getElementById('btn-capture');
+const verdictEl   = document.getElementById('verdict');
+const verdictSub  = document.getElementById('verdict-sub');
+const flash       = document.getElementById('flash');
+const capCanvas   = document.getElementById('capture-canvas');
+const stdCanvas   = document.getElementById('std-canvas');
+const capCtx      = capCanvas.getContext('2d');
+const stdCtx      = stdCanvas.getContext('2d');
+
+// ── Load standard image ──
+stdInput.addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const img = new Image();
+    img.onload = () => {
+      // Pre-process standard image into pixel data
+      const W = 200, H = 200;
+      stdCanvas.width = W; stdCanvas.height = H;
+      stdCtx.drawImage(img, 0, 0, W, H);
+      stdImageData = stdCtx.getImageData(0, 0, W, H).data;
+
+      // Show preview
+      uploadBox.innerHTML = `<img src="${ev.target.result}"><div class="badge-ok">✓ 已选好</div>`;
+      uploadBox.classList.add('has-img');
+      btnStart.disabled = false;
+    };
+    img.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
+});
+
+// ── Sensitivity buttons ──
+document.querySelectorAll('.sens-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.sens-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    sensitivity = parseInt(btn.dataset.v);
+  });
+});
+
+// ── Start scanning ──
+btnStart.addEventListener('click', async () => {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: 'environment',
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      }
+    });
+    video.srcObject = stream;
+    phaseSetup.style.display = 'none';
+    phaseScan.style.display = 'flex';
+  } catch(err) {
+    alert('无法打开摄像头，请允许相机权限后重试。\n' + err.message);
+  }
+});
+
+// ── Exit ──
+btnExit.addEventListener('click', () => {
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+  phaseScan.style.display = 'none';
+  phaseSetup.style.display = 'flex';
+  verdictEl.className = 'result-verdict ready';
+  verdictEl.textContent = '对准产品按下拍摄';
+  verdictSub.textContent = '将印刷面对准上方框内';
+  countOk = 0; countFail = 0;
+  updateStats();
+});
+
+// ── Capture & detect ──
+btnCapture.addEventListener('click', () => {
+  if (!stdImageData) return;
+
+  // Flash
+  flash.style.opacity = '0.8';
+  setTimeout(() => { flash.style.transition = 'opacity .3s'; flash.style.opacity = '0'; }, 80);
+  setTimeout(() => { flash.style.transition = ''; }, 400);
+
+  // Capture frame from video
+  const W = 200, H = 200;
+  capCanvas.width = W; capCanvas.height = H;
+
+  // Crop center square from video
+  const vw = video.videoWidth, vh = video.videoHeight;
+  const size = Math.min(vw, vh);
+  const sx = (vw - size) / 2, sy = (vh - size) / 2;
+  capCtx.drawImage(video, sx, sy, size, size, 0, 0, W, H);
+
+  const capData = capCtx.getImageData(0, 0, W, H).data;
+
+  // Compare pixels
+  let diffCount = 0;
+  const total = W * H;
+
+  for (let i = 0; i < total; i++) {
+    const r = Math.abs(stdImageData[i*4]   - capData[i*4]);
+    const g = Math.abs(stdImageData[i*4+1] - capData[i*4+1]);
+    const b = Math.abs(stdImageData[i*4+2] - capData[i*4+2]);
+    if ((r + g + b) / 3 > sensitivity) diffCount++;
+  }
+
+  const diffPct = diffCount / total * 100;
+
+  // Threshold: if >8% pixels differ → fail
+  const failThreshold = 8;
+  const isOK = diffPct < failThreshold;
+
+  // Update verdict
+  if (isOK) {
+    verdictEl.className = 'result-verdict ok';
+    verdictEl.textContent = '✅ 合格';
+    verdictSub.textContent = `差异 ${diffPct.toFixed(1)}% — 印刷正常，可以出库`;
+    countOk++;
+    playBeep('ok');
+  } else {
+    verdictEl.className = 'result-verdict fail';
+    verdictEl.textContent = '❌ 不合格';
+    verdictSub.textContent = `差异 ${diffPct.toFixed(1)}% — 发现印刷异常，请挑出`;
+    countFail++;
+    playBeep('fail');
+  }
+
+  updateStats();
+
+  // Auto reset verdict hint after 3s
+  setTimeout(() => {
+    if (verdictEl.textContent === '✅ 合格' || verdictEl.textContent === '❌ 不合格') {
+      verdictEl.className = 'result-verdict ready';
+      verdictEl.textContent = '对准产品按下拍摄';
+      verdictSub.textContent = '将印刷面对准上方框内';
+    }
+  }, 3000);
+});
+
+function updateStats() {
+  document.getElementById('count-ok').textContent = countOk;
+  document.getElementById('count-fail').textContent = countFail;
+  document.getElementById('count-total').textContent = countOk + countFail;
+}
+
+// ── Beep sounds ──
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+function playBeep(type) {
+  try {
+    if (type === 'ok') {
+      // Short pleasant beep
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.connect(gain); gain.connect(audioCtx.destination);
+      osc.frequency.value = 880;
+      osc.type = 'sine';
+      gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.2);
+      osc.start(); osc.stop(audioCtx.currentTime + 0.2);
+    } else {
+      // Two short warning beeps
+      [0, 0.18].forEach(delay => {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        osc.frequency.value = 330;
+        osc.type = 'square';
+        gain.gain.setValueAtTime(0.2, audioCtx.currentTime + delay);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + delay + 0.15);
+        osc.start(audioCtx.currentTime + delay);
+        osc.stop(audioCtx.currentTime + delay + 0.15);
+      });
+    }
+  } catch(e) {}
+}
+
+// Resume audio context on first interaction
+document.addEventListener('click', () => {
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+}, { once: true });
+</script>
+</body>
+</html>
